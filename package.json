@@ -1,6 +1,6 @@
 {
   "name": "getmnemo-mastra",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Mnemo memory provider for Mastra agents.",
   "type": "module",
   "main": "./dist/index.js",
@@ -29,7 +29,10 @@
     "agent",
     "rag"
   ],
-  "author": "Mnemo <founders@mnemohq.com>",
+  "author": {
+    "name": "Mnemo",
+    "url": "https://mnemohq.com"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
