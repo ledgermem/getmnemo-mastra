@@ -18,19 +18,33 @@ describe("MnemoMemory", () => {
   beforeEach(() => {
     search.mockReset();
     add.mockReset();
-    search.mockResolvedValue([
-      { id: "m1", content: "user prefers TypeScript", score: 0.92 },
-    ]);
-    add.mockResolvedValue({ id: "new" });
+    // Core 0.2.0 search returns { results: SearchHit[] } keyed on `memoryId`
+    // (confirmed against prod 2026-06-16).
+    search.mockResolvedValue({
+      results: [
+        {
+          memoryId: "m1",
+          content: "user prefers TypeScript",
+          score: 0.92,
+          scopeKey: "user:jane",
+        },
+      ],
+    });
+    add.mockResolvedValue({ scopeKey: "user:jane", scope: {}, items: [] });
   });
 
-  it("recalls recent buffer + semantic results", async () => {
+  it("recalls recent buffer + semantic results (user-scoped container)", async () => {
     const mem = new MnemoMemory({ apiKey: "k", workspaceId: "w" });
     await mem.rememberMessage({
       threadId: "t1",
+      resourceId: "jane",
       message: { role: "user", content: "hello" },
     });
-    const out = await mem.remember({ threadId: "t1", query: "language" });
+    const out = await mem.remember({
+      threadId: "t1",
+      resourceId: "jane",
+      query: "language",
+    });
     expect(out.recent).toHaveLength(1);
     expect(out.semantic[0]).toEqual({
       id: "m1",
@@ -39,15 +53,58 @@ describe("MnemoMemory", () => {
     });
   });
 
+  it("derives the container tag from resourceId by default (user:<id>)", async () => {
+    const mem = new MnemoMemory({ apiKey: "k", workspaceId: "w" });
+    await mem.rememberMessage({
+      threadId: "t1",
+      resourceId: "jane",
+      message: { role: "user", content: "hello" },
+    });
+    expect(add).toHaveBeenCalledWith(
+      expect.objectContaining({ containerTag: "user:jane" }),
+    );
+    await mem.remember({ threadId: "t1", resourceId: "jane", query: "x" });
+    expect(search).toHaveBeenCalledWith(
+      expect.objectContaining({ q: "x", containerTag: "user:jane" }),
+    );
+  });
+
+  it("uses thread:<id> container when containerScope is 'thread'", async () => {
+    const mem = new MnemoMemory({
+      apiKey: "k",
+      workspaceId: "w",
+      containerScope: "thread",
+    });
+    await mem.rememberMessage({
+      threadId: "t1",
+      message: { role: "user", content: "hello" },
+    });
+    expect(add).toHaveBeenCalledWith(
+      expect.objectContaining({ containerTag: "thread:t1" }),
+    );
+  });
+
+  it("throws when user scope is used without a resourceId", async () => {
+    const mem = new MnemoMemory({ apiKey: "k", workspaceId: "w" });
+    await expect(
+      mem.rememberMessage({
+        threadId: "t1",
+        message: { role: "user", content: "hello" },
+      }),
+    ).rejects.toThrow(/requires a resourceId/);
+  });
+
   it("only persists user/assistant messages to Mnemo", async () => {
     const mem = new MnemoMemory({ apiKey: "k", workspaceId: "w" });
     await mem.rememberMessage({
       threadId: "t1",
+      resourceId: "jane",
       message: { role: "system", content: "sys prompt" },
     });
     expect(add).not.toHaveBeenCalled();
     await mem.rememberMessage({
       threadId: "t1",
+      resourceId: "jane",
       message: { role: "assistant", content: "hi" },
     });
     expect(add).toHaveBeenCalledOnce();
@@ -62,16 +119,17 @@ describe("MnemoMemory", () => {
     for (const c of ["a", "b", "c"]) {
       await mem.rememberMessage({
         threadId: "t1",
+        resourceId: "jane",
         message: { role: "user", content: c },
       });
     }
-    const out = await mem.remember({ threadId: "t1" });
+    const out = await mem.remember({ threadId: "t1", resourceId: "jane" });
     expect(out.recent.map((m) => m.content)).toEqual(["b", "c"]);
   });
 
   it("skips semantic recall when no query is provided", async () => {
     const mem = new MnemoMemory({ apiKey: "k", workspaceId: "w" });
-    const out = await mem.remember({ threadId: "t1" });
+    const out = await mem.remember({ threadId: "t1", resourceId: "jane" });
     expect(out.semantic).toEqual([]);
     expect(search).not.toHaveBeenCalled();
   });
