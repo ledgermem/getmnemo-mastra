@@ -229,11 +229,23 @@ export class MnemoMemory {
     // when the caller opted into per-thread isolation.
     // confirmed against prod 2026-06-16: `SearchResponse.results` carries the
     // primary hits; `hit.metadata` is `Record<string, unknown> | null`.
-    const { results } = await this.client.search({
-      q: query,
-      containerTag,
-      limit: fetchLimit,
-    });
+    // A brand-new container has no memories yet — the API answers a search
+    // against a not-yet-created container with 404 "Container not found". For
+    // recall that means "nothing to recall", not a fatal error → treat as empty
+    // (otherwise the very first remember() in any new thread/resource throws).
+    let results: SearchHit[];
+    try {
+      ({ results } = await this.client.search({
+        q: query,
+        containerTag,
+        limit: fetchLimit,
+      }));
+    } catch (err: unknown) {
+      if (err instanceof Error && (err as { status?: number }).status === 404) {
+        return [];
+      }
+      throw err;
+    }
     const filtered: Array<{ id: string; content: string; score?: number }> = [];
     for (const hit of results) {
       if (this.containerScope === "thread" && !this.matchesThread(hit, opts)) {
