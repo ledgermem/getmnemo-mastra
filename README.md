@@ -6,12 +6,18 @@ Combines a thread-scoped short-term buffer with semantic long-term recall.
 ## Install
 
 ```bash
-npm install getmnemo-mastra @mastra/core
+npm install getmnemo-mastra
 ```
 
-`getmnemo` (the core SDK) is bundled as a dependency, so it is installed for you.
+`getmnemo` (the core SDK, `^0.6`) is bundled as a dependency, so it is
+installed for you. `@mastra/core` is an **optional** peer (`>=0.4.0`) — this
+package never imports it, so it installs cleanly next to any current Mastra
+release (no `ERESOLVE`), or with no Mastra at all if you only want the memory
+store.
 
-Set `GETMNEMO_API_KEY` and `GETMNEMO_WORKSPACE_ID`, or pass them in explicitly.
+Set `GETMNEMO_API_KEY`, or pass `apiKey` in explicitly. (`workspaceId` is
+deprecated — workspace identity now comes from the API key. It is still
+accepted and forwarded if you pass it.)
 
 > **Security:** the `apiKey` is **full-access** by default — keep it server-side.
 > For client-exposed contexts, mint a **scoped read-only key** at
@@ -48,8 +54,8 @@ import { Agent } from "@mastra/core/agent";
 import { openai } from "@ai-sdk/openai";
 import { MnemoMemory } from "getmnemo-mastra";
 
-// Reads GETMNEMO_API_KEY / GETMNEMO_WORKSPACE_ID from the environment,
-// or pass { apiKey, workspaceId } explicitly. Defaults to containerScope: "user".
+// Reads GETMNEMO_API_KEY from the environment, or pass { apiKey }
+// explicitly. Defaults to containerScope: "user".
 const memory = new MnemoMemory({ workingWindow: 20, recallLimit: 5 });
 
 const agent = new Agent({
@@ -113,7 +119,7 @@ Pass an existing `Mnemo` instance instead of credentials:
 import { Mnemo } from "getmnemo";
 import { MnemoMemory } from "getmnemo-mastra";
 
-const client = new Mnemo({ apiKey, workspaceId });
+const client = new Mnemo({ apiKey });
 const memory = new MnemoMemory({ client, recallLimit: 8 });
 ```
 
@@ -125,7 +131,10 @@ const memory = new MnemoMemory({ client, recallLimit: 8 });
   (a `resourceId` is required); in `"thread"` scope, hits are additionally
   filtered to the requested `threadId` to prevent cross-thread context bleed.
   Returns `{ threadId, resourceId?, recent, semantic }`, where each `semantic`
-  hit is `{ id, content, score? }`.
+  hit is `{ id, content, score? }`. A brand-new container (first recall for a
+  new user/thread) has nothing to search yet — the API's 404 ("Container not
+  found") is treated as "nothing to recall" and `semantic` comes back empty
+  instead of throwing.
 - `rememberMessage({ threadId, resourceId?, message })` — appends to the working
   buffer and persists `user`/`assistant` turns to Mnemo (`system`/`tool` turns
   stay local only). In `"user"` scope, omitting `resourceId` throws.
@@ -143,7 +152,7 @@ A `message` is `{ role: "user" | "assistant" | "system" | "tool", content, creat
 | ---------------- | -------- | ------------------------------------------------------------------------------------ |
 | `client`         | —        | Existing `Mnemo` instance (overrides `apiKey`/`workspaceId`).                        |
 | `apiKey`         | env      | Full-access — keep server-side. Falls back to `GETMNEMO_API_KEY`.                   |
-| `workspaceId`    | env      | Falls back to `GETMNEMO_WORKSPACE_ID`.                                               |
+| `workspaceId`    | env      | **Deprecated** (identity comes from the API key). Still accepted; falls back to `GETMNEMO_WORKSPACE_ID`. |
 | `containerScope` | `"user"` | Isolation boundary: `"user"` (`user:${resourceId}`) or `"thread"` (`thread:${threadId}`). |
 | `workingWindow`  | `20`     | Recent messages kept verbatim per thread.                                            |
 | `recallLimit`    | `5`      | Default top-k for semantic recall.                                                   |

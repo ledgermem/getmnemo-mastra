@@ -19,6 +19,10 @@ export type ContainerScope = "user" | "thread";
 export interface MnemoMemoryOptions {
   client?: Mnemo;
   apiKey?: string;
+  /**
+   * @deprecated Workspace identity is taken from the API key in core 0.6.
+   * Still accepted and forwarded for backwards compatibility.
+   */
   workspaceId?: string;
   /**
    * Which identifier owns the durable container (the isolation boundary).
@@ -300,11 +304,13 @@ function toSemanticResult(hit: SearchHit): {
 function resolveClient(opts: MnemoMemoryOptions): Mnemo {
   if (opts.client) return opts.client;
   const apiKey = opts.apiKey ?? process.env.GETMNEMO_API_KEY;
+  // Deprecated in core 0.6 (workspace identity comes from the API key), but
+  // still accepted and forwarded for backwards compatibility.
   const workspaceId = opts.workspaceId ?? process.env.GETMNEMO_WORKSPACE_ID;
-  if (!apiKey || !workspaceId) {
+  if (!apiKey) {
     throw new Error(
-      "MnemoMemory: missing apiKey/workspaceId. Pass them explicitly or set GETMNEMO_API_KEY and GETMNEMO_WORKSPACE_ID.",
+      "MnemoMemory: missing apiKey. Pass it explicitly or set GETMNEMO_API_KEY.",
     );
   }
-  return new Mnemo({ apiKey, workspaceId });
+  return new Mnemo({ apiKey, ...(workspaceId ? { workspaceId } : {}) });
 }
