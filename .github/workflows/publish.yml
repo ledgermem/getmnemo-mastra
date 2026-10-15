@@ -23,7 +23,6 @@ jobs:
           MNEMO_API_KEY: ${{ secrets.MNEMO_API_KEY }}
           MNEMO_WORKSPACE_ID: ${{ secrets.MNEMO_WORKSPACE_ID }}
           MNEMO_TEST_CONTAINER: ${{ secrets.MNEMO_TEST_CONTAINER }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
   publish:
     needs: smoke
