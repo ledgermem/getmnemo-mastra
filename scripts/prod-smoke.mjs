@@ -112,8 +112,9 @@ async function main() {
   console.log("[smoke] resourceId      :", resourceId, "(container user:" + resourceId + ")");
   console.log("[smoke] otherResourceId :", otherResourceId);
 
-  // Track memory ids surfaced by recall so cleanup runs even if assertions throw.
-  const createdIds = new Set();
+  // Track memory ids (→ their container) surfaced by recall so cleanup runs
+  // even if assertions throw. Core 0.6 by-id routes require the container.
+  const createdIds = new Map();
 
   try {
     // ---- CRITICAL PATH: write via rememberMessage (→ core add) ----------
@@ -128,7 +129,7 @@ async function main() {
 
     // Round-trip: the memory MUST come back under its OWN resourceId.
     const own = await memory.remember({ threadId, resourceId, query });
-    for (const hit of own?.semantic ?? []) if (hit?.id) createdIds.add(hit.id);
+    for (const hit of own?.semantic ?? []) if (hit?.id) createdIds.set(hit.id, `user:${resourceId}`);
 
     if (!semanticContains(own, secret)) {
       fail(
@@ -147,7 +148,7 @@ async function main() {
       resourceId: otherResourceId,
       query,
     });
-    for (const hit of cross?.semantic ?? []) if (hit?.id) createdIds.add(hit.id);
+    for (const hit of cross?.semantic ?? []) if (hit?.id) createdIds.set(hit.id, `user:${otherResourceId}`);
 
     if (semanticContains(cross, secret)) {
       isolationFailure(
@@ -182,9 +183,9 @@ async function main() {
     }
   } finally {
     // ---- CLEANUP: best-effort delete; failure warns, never fatal -------
-    for (const id of createdIds) {
+    for (const [id, containerTag] of createdIds) {
       try {
-        await client.delete(id);
+        await client.delete(id, { containerTag });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[smoke] WARN: cleanup delete failed for memory ${id}: ${msg}`);

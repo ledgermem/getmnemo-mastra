@@ -21,7 +21,7 @@ export interface MnemoMemoryOptions {
   apiKey?: string;
   /**
    * @deprecated Workspace identity is taken from the API key in core 0.6.
-   * Still accepted and forwarded for backwards compatibility.
+   * Accepted for backwards compatibility but ignored (a no-op in core 0.6).
    */
   workspaceId?: string;
   /**
@@ -255,6 +255,9 @@ export class MnemoMemory {
       if (this.containerScope === "thread" && !this.matchesThread(hit, opts)) {
         continue;
       }
+      // Only memory hits carry a memoryId; skip anything else (e.g. document
+      // hits) rather than surfacing an empty/undefined id.
+      if (!hit.memoryId) continue;
       filtered.push(toSemanticResult(hit));
       if (filtered.length >= limit) break;
     }
@@ -305,7 +308,7 @@ function resolveClient(opts: MnemoMemoryOptions): Mnemo {
   if (opts.client) return opts.client;
   const apiKey = opts.apiKey ?? process.env.GETMNEMO_API_KEY;
   // Deprecated in core 0.6 (workspace identity comes from the API key), but
-  // still accepted and forwarded for backwards compatibility.
+  // accepted for backwards compatibility but ignored by the core.
   const workspaceId = opts.workspaceId ?? process.env.GETMNEMO_WORKSPACE_ID;
   if (!apiKey) {
     throw new Error(

@@ -10,14 +10,15 @@ npm install getmnemo-mastra
 ```
 
 `getmnemo` (the core SDK, `^0.6`) is bundled as a dependency, so it is
-installed for you. `@mastra/core` is an **optional** peer (`>=0.4.0`) — this
-package never imports it, so it installs cleanly next to any current Mastra
-release (no `ERESOLVE`), or with no Mastra at all if you only want the memory
+installed for you. `@mastra/core` is an **optional** peer (`*`) — this
+package never imports it, so it installs cleanly next to any Mastra release,
+including prereleases (no `ERESOLVE`), or with no Mastra at all if you only want the memory
 store.
 
 Set `GETMNEMO_API_KEY`, or pass `apiKey` in explicitly. (`workspaceId` is
 deprecated — workspace identity now comes from the API key. It is still
-accepted and forwarded if you pass it.)
+accepted for backwards compatibility but ignored — core 0.6 takes workspace
+identity solely from the API key.)
 
 > **Security:** the `apiKey` is **full-access** by default — keep it server-side.
 > For client-exposed contexts, mint a **scoped read-only key** at

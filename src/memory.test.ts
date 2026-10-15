@@ -167,4 +167,18 @@ describe("MnemoMemory", () => {
       mem.remember({ threadId: "t1", resourceId: "jane", query: "x" }),
     ).rejects.toThrow(/500/);
   });
+
+  it("skips search hits without a memoryId (e.g. document hits)", async () => {
+    search.mockResolvedValue({
+      results: [
+        { resultType: "document", content: "doc chunk", score: 0.95 },
+        { memoryId: "m1", content: "user prefers TypeScript", score: 0.92 },
+      ],
+    });
+    const mem = new MnemoMemory({ apiKey: "k" });
+    const out = await mem.remember({ threadId: "t1", resourceId: "jane", query: "x" });
+    expect(out.semantic).toEqual([
+      { id: "m1", content: "user prefers TypeScript", score: 0.92 },
+    ]);
+  });
 });
