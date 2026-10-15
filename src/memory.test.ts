@@ -18,8 +18,8 @@ describe("MnemoMemory", () => {
   beforeEach(() => {
     search.mockReset();
     add.mockReset();
-    // Core 0.2.0 search returns { results: SearchHit[] } keyed on `memoryId`
-    // (confirmed against prod 2026-06-16).
+    // Core 0.6.0 search returns { results: SearchHit[] } keyed on `memoryId`
+    // (unchanged from 0.2; confirmed against prod 2026-06-16).
     search.mockResolvedValue({
       results: [
         {
@@ -132,5 +132,63 @@ describe("MnemoMemory", () => {
     const out = await mem.remember({ threadId: "t1", resourceId: "jane" });
     expect(out.semantic).toEqual([]);
     expect(search).not.toHaveBeenCalled();
+  });
+
+  it("works without workspaceId (deprecated in core 0.6 — identity comes from the API key)", async () => {
+    const mem = new MnemoMemory({ apiKey: "k" });
+    const out = await mem.remember({
+      threadId: "t1",
+      resourceId: "jane",
+      query: "language",
+    });
+    expect(out.semantic).toHaveLength(1);
+  });
+
+  it("treats a 404 on recall (empty container) as no semantic results", async () => {
+    // Mirrors core 0.6's MnemoHTTPError shape: an Error with a `.status`.
+    search.mockRejectedValue(
+      Object.assign(new Error("[404] Container not found"), { status: 404 }),
+    );
+    const mem = new MnemoMemory({ apiKey: "k", workspaceId: "w" });
+    const out = await mem.remember({
+      threadId: "t1",
+      resourceId: "brand-new-user",
+      query: "anything",
+    });
+    expect(out.semantic).toEqual([]);
+  });
+
+  it("rethrows a 404 that is not container-not-found", async () => {
+    search.mockRejectedValue(
+      Object.assign(new Error("[404] Route not found"), { status: 404 }),
+    );
+    const mem = new MnemoMemory({ apiKey: "k" });
+    await expect(
+      mem.remember({ threadId: "t1", resourceId: "jane", query: "x" }),
+    ).rejects.toThrow(/Route not found/);
+  });
+
+  it("rethrows non-404 recall errors", async () => {
+    search.mockRejectedValue(
+      Object.assign(new Error("[500] boom"), { status: 500 }),
+    );
+    const mem = new MnemoMemory({ apiKey: "k", workspaceId: "w" });
+    await expect(
+      mem.remember({ threadId: "t1", resourceId: "jane", query: "x" }),
+    ).rejects.toThrow(/500/);
+  });
+
+  it("skips search hits without a memoryId (e.g. document hits)", async () => {
+    search.mockResolvedValue({
+      results: [
+        { resultType: "document", content: "doc chunk", score: 0.95 },
+        { memoryId: "m1", content: "user prefers TypeScript", score: 0.92 },
+      ],
+    });
+    const mem = new MnemoMemory({ apiKey: "k" });
+    const out = await mem.remember({ threadId: "t1", resourceId: "jane", query: "x" });
+    expect(out.semantic).toEqual([
+      { id: "m1", content: "user prefers TypeScript", score: 0.92 },
+    ]);
   });
 });

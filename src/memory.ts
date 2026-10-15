@@ -19,6 +19,10 @@ export type ContainerScope = "user" | "thread";
 export interface MnemoMemoryOptions {
   client?: Mnemo;
   apiKey?: string;
+  /**
+   * @deprecated Workspace identity is taken from the API key in core 0.6.
+   * Accepted for backwards compatibility but ignored (a no-op in core 0.6).
+   */
   workspaceId?: string;
   /**
    * Which identifier owns the durable container (the isolation boundary).
@@ -241,7 +245,7 @@ export class MnemoMemory {
         limit: fetchLimit,
       }));
     } catch (err: unknown) {
-      if (err instanceof Error && (err as { status?: number }).status === 404) {
+      if (isContainerNotFound(err)) {
         return [];
       }
       throw err;
@@ -251,6 +255,9 @@ export class MnemoMemory {
       if (this.containerScope === "thread" && !this.matchesThread(hit, opts)) {
         continue;
       }
+      // Only memory hits carry a memoryId; skip anything else (e.g. document
+      // hits) rather than surfacing an empty/undefined id.
+      if (!hit.memoryId) continue;
       filtered.push(toSemanticResult(hit));
       if (filtered.length >= limit) break;
     }
@@ -300,11 +307,28 @@ function toSemanticResult(hit: SearchHit): {
 function resolveClient(opts: MnemoMemoryOptions): Mnemo {
   if (opts.client) return opts.client;
   const apiKey = opts.apiKey ?? process.env.GETMNEMO_API_KEY;
+  // Deprecated in core 0.6 (workspace identity comes from the API key), but
+  // accepted for backwards compatibility but ignored by the core.
   const workspaceId = opts.workspaceId ?? process.env.GETMNEMO_WORKSPACE_ID;
-  if (!apiKey || !workspaceId) {
+  if (!apiKey) {
     throw new Error(
-      "MnemoMemory: missing apiKey/workspaceId. Pass them explicitly or set GETMNEMO_API_KEY and GETMNEMO_WORKSPACE_ID.",
+      "MnemoMemory: missing apiKey. Pass it explicitly or set GETMNEMO_API_KEY.",
     );
   }
-  return new Mnemo({ apiKey, workspaceId });
+  return new Mnemo({ apiKey, ...(workspaceId ? { workspaceId } : {}) });
+}
+
+/**
+ * True only for the API's 404 "Container not found" (a brand-new container
+ * nothing has been written to). Other 404s are rethrown.
+ */
+function isContainerNotFound(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if ((err as { status?: unknown }).status !== 404) return false;
+  const body = (err as { body?: unknown }).body;
+  const code =
+    body && typeof body === "object" && "code" in body
+      ? String((body as { code?: unknown }).code)
+      : "";
+  return /container/i.test(err.message) || /container/i.test(code);
 }
