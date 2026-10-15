@@ -14,10 +14,10 @@
  * isolation boundary: a `remember()` with a different `resourceId` must not see
  * another user's memory.
  *
- * The OpenAI `generateText` leg is OPTIONAL (only when OPENAI_API_KEY is set)
- * and exists purely to confirm the integration shape — recalled memory feeding
- * a Mastra-style model call. It is tiny and non-authoritative; the round-trip +
- * isolation gate above is what actually protects the release.
+ * No LLM is involved: the smoke calls MnemoMemory directly, so the publish
+ * gate does not depend on any model-provider key or credits. It also asserts
+ * that remember() on a never-written resource returns semantic: [] (404
+ * "Container not found" tolerance) before the first write.
  *
  * Exit codes:
  *   0  round-trip recalled the memory AND the cross-resourceId isolation
@@ -33,15 +33,13 @@
  *   MNEMO_API_KEY        scoped test key (delete scope used for best-effort cleanup)
  *   MNEMO_WORKSPACE_ID   throwaway test workspace id
  *   MNEMO_TEST_CONTAINER base resource id, e.g. "ci-smoke"
- * Optional env:
- *   OPENAI_API_KEY       enables the tiny generateText integration-shape check
  */
 
 import { Mnemo } from "getmnemo";
 import { MnemoMemory } from "../dist/index.js";
 
-const PROPAGATION_WAIT_MS = 3_000;
-const OPENAI_MODEL = "gpt-4o-mini";
+const SEARCH_ATTEMPTS = 5;
+const SEARCH_RETRY_MS = 2_000;
 
 function fail(msg) {
   console.error(`\n[smoke] FAIL: ${msg}`);
@@ -116,6 +114,13 @@ async function main() {
   const createdIds = new Set();
 
   try {
+    // ---- 404 TOLERANCE: recall on a never-written container ------------
+    const fresh = await memory.remember({ threadId, resourceId, query });
+    if (!Array.isArray(fresh?.semantic) || fresh.semantic.length !== 0) {
+      fail(`fresh-container remember() expected semantic: [], got ${JSON.stringify(fresh?.semantic ?? null)}`);
+    }
+    console.log("[smoke] OK 404 tolerance: fresh-container remember() → semantic: []");
+
     // ---- CRITICAL PATH: write via rememberMessage (→ core add) ----------
     await memory.rememberMessage({
       threadId,
@@ -123,12 +128,15 @@ async function main() {
       message: { role: "user", content: factContent },
     });
 
-    // Give the indexer a moment to make the write searchable.
-    await sleep(PROPAGATION_WAIT_MS);
-
-    // Round-trip: the memory MUST come back under its OWN resourceId.
-    const own = await memory.remember({ threadId, resourceId, query });
-    for (const hit of own?.semantic ?? []) if (hit?.id) createdIds.add(hit.id);
+    // Round-trip: the memory MUST come back under its OWN resourceId. Retry
+    // briefly to give the indexer time to make the write searchable.
+    let own;
+    for (let i = 0; i < SEARCH_ATTEMPTS; i++) {
+      if (i > 0) await sleep(SEARCH_RETRY_MS);
+      own = await memory.remember({ threadId, resourceId, query });
+      for (const hit of own?.semantic ?? []) if (hit?.id) createdIds.add(hit.id);
+      if (semanticContains(own, secret)) break;
+    }
 
     if (!semanticContains(own, secret)) {
       fail(
@@ -158,33 +166,11 @@ async function main() {
     console.log(
       "[smoke] OK isolation: resourceId A↛B — the memory did NOT leak across resourceIds",
     );
-
-    // ---- OPTIONAL: tiny generateText integration-shape check -----------
-    if (process.env.OPENAI_API_KEY) {
-      const recalled = (own.semantic ?? []).map((m) => m.content).join("\n");
-      try {
-        const { openai } = await import("@ai-sdk/openai");
-        const { generateText } = await import("ai");
-        const { text } = await generateText({
-          model: openai(OPENAI_MODEL),
-          prompt:
-            `Relevant memories:\n${recalled}\n\n` +
-            `Using only the memories above, what is the user's favorite color? ` +
-            `Answer in one word.`,
-        });
-        console.log(`[smoke] OK integration shape: generateText(${OPENAI_MODEL}) → ${JSON.stringify(text.trim())}`);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        fail(`optional generateText integration check threw: ${msg}`);
-      }
-    } else {
-      console.log("[smoke] SKIP integration shape: OPENAI_API_KEY not set");
-    }
   } finally {
     // ---- CLEANUP: best-effort delete; failure warns, never fatal -------
     for (const id of createdIds) {
       try {
-        await client.delete(id);
+        await client.delete(id, { containerTag: `user:${resourceId}` });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[smoke] WARN: cleanup delete failed for memory ${id}: ${msg}`);
