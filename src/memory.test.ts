@@ -158,6 +158,16 @@ describe("MnemoMemory", () => {
     expect(out.semantic).toEqual([]);
   });
 
+  it("rethrows a 404 that is not container-not-found", async () => {
+    search.mockRejectedValue(
+      Object.assign(new Error("[404] Route not found"), { status: 404 }),
+    );
+    const mem = new MnemoMemory({ apiKey: "k" });
+    await expect(
+      mem.remember({ threadId: "t1", resourceId: "jane", query: "x" }),
+    ).rejects.toThrow(/Route not found/);
+  });
+
   it("rethrows non-404 recall errors", async () => {
     search.mockRejectedValue(
       Object.assign(new Error("[500] boom"), { status: 500 }),
